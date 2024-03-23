@@ -328,6 +328,7 @@
 
 #page3-chatRoom #page3-rightContainer #messagesContainer {
     display: flex;
+    height: 100%;
     flex-direction: column;
     align-items: start;
     overflow-y: auto;
@@ -390,6 +391,7 @@
     background-color: #212529;
     color: #dde1e4;
     border: 1px solid #2d2d2d;
+    white-space: pre;
 }
 
 #page3-chatRoom #sendMessage .message-holder label {
@@ -408,6 +410,15 @@
     background-color: #454b50;
     border-color: #454b50;
 }
+
+#page3-chatRoom #messagesContainer .chatBox .chatBox-right .privateMessage {
+    color: #d24d57;
+}
+
+#page3-chatRoom #messagesContainer .chatBox .chatBox-right .helpMessage {
+    color: rgb(193, 213, 246);
+}
+
 
     /* User Action Modal */
     #page3-chatRoom #userActionModal > .modal-dialog > .modal-content > .modal-header {
@@ -467,8 +478,6 @@
         --bs-btn-disabled-bg: #9f5afd;
         --bs-btn-disabled-border-color: #9f5afd;
     }
-
-
 
     #page3-chatRoom #userActionModal .modal-header {
         border-bottom: 1px solid #dde1e4;

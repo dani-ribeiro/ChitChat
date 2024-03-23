@@ -1,3 +1,74 @@
+socket.on('receive_message', function(data){
+    const sender = data.sender;
+    const message = data.message;
+    const typeOfMessage = data.typeOfMessage;
+
+    const messageContainer = document.getElementById('messagesContainer');
+
+    const chatBox = document.createElement('div');
+    $(chatBox).addClass('chatBox');
+    const profilePicture = document.createElement('img');
+    $(profilePicture).addClass('chatBox-avatar')
+    $(profilePicture).attr('src', 'static/default-user.svg');
+    $(profilePicture).attr('alt', 'Profile Picture');
+
+    const chatBox_right = document.createElement('div');
+    $(chatBox_right).addClass('chatBox-right');
+
+    const messageSender = document.createElement('h6');
+    $(messageSender).addClass('chatBox-username');
+    $(messageSender).text(sender);
+
+    const messageText = document.createElement('p');
+    $(messageText).addClass('chatBox-message');
+    $(messageText).html(message.replace(/\n/g, '<br>'));
+
+    if(typeOfMessage === 'help'){
+        $(profilePicture).attr('src', 'static/chitchat.png');
+        $(messageSender).addClass('helpMessage');
+        $(messageText).addClass('helpMessage');
+        
+    }else if(typeOfMessage === 'private'){
+        $(messageSender).addClass('privateMessage');
+        $(messageText).addClass('privateMessage');
+    }
+
+    $(chatBox_right).append(messageSender);
+    $(chatBox_right).append(messageText);
+    $(chatBox).append(profilePicture);
+    $(chatBox).append(chatBox_right);
+    $(messageContainer).append(chatBox);
+
+    // scroll to newest message
+    messageContainer.scrollTop = messageContainer.scrollHeight;
+});
+
+// handles send message form submission
+function sendMessage(submit){
+    const form = document.getElementById("sendMessage");
+    submit.preventDefault(); // prevent default form refresh upon submission
+
+    if(form.checkValidity()){
+        const message = document.getElementById('message').value;
+
+        socket.emit('get_current_room');
+        socket.once('current_room_result', function(room){
+            if(room !== null){
+                if(room !== null){
+                    console.log(message);
+                    socket.emit('send_message', {roomName: room, message, sender: socket.username});
+                }
+
+                resetForms();
+            }
+        });
+    }else{
+        console.log('form validation');
+        form.reportValidity();
+    }
+}
+
+
 // user wants to enter password-protected room --> prompt user for password --> validate password
 function validatePassword(submit, roomName){
     const form = document.getElementById("passwordForm");
@@ -33,76 +104,6 @@ socket.on('join_room_success', function (){
     $('#roomPasswordModal').modal('hide');
     displayPage('#page3-chatRoom');
 });
-
-// // returns user role in room
-// function getUserRole(roomName, username){
-//     socket.emit('get_user_role', {roomName, username});
-
-//     socket.on('user_role_result', function(data){
-//         return data.role;
-//     });
-// }
-
-// socket.on('update_user_list', function(data){
-//     const updatedUserList = data.updatedUserList;
-//     const creator = data.creator;
-//     const roomName = data.roomName;
-//     const socketUser = socket.username;
-
-
-//     let socketRole = "";
-//     socket.emit('get_user_role', {roomName, username: socketUser});
-//     socket.on('user_role_result', function(data){
-//         socketRole = data.role;
-//         console.log(`currently you're a ${socketRole}`);
-//     });
-
-//     // clear user list before updating
-//     const userList = $('#userListBody');
-//     $(userList).html('');
-
-//     for(const user of updatedUserList){
-//         const tableRow = document.createElement('tr');
-//         const usernameDisplay = document.createElement('td');
-//         usernameDisplay.textContent = user;
-
-//         let userRole = "";
-//         socket.emit('get_user_role', {roomName, username: user});
-//         socket.on('user_role_result', function(data){
-//             userRole = data.role;
-//             console.log(`currently you're a ${userRole}`);
-//         });
-//         /* user action modal logic:
-//             - If current user is the room CREATOR:
-//                 - Allow creator to kick/ban/admin/unadmin any other user in the room.
-//             - If current user is a room ADMIN:
-//                 - Allow admin to kick/ban any other REGULAR user (not creator or another admin)
-//             - If current user is not a room CREATOR and not a room ADMIN, they are a REGULAR user
-//                 - No special priviledges.
-//         */
-//        $(tableRow).off();
-       
-//         $(tableRow).click(function(){
-//             // current user is the CREATOR
-//             if(socketRole === "creator"){
-//                 // CREATOR clicked on an ADMIN --> kick/ban/unadmin
-//                 if(userRole === "admin"){
-//                     console.log('creator clicked admin');
-//                 }else{      // CREATOR clicked on a REGULAR user --> kick/ban/admin
-//                     console.log('creator clicked regular');
-//                 }
-//             // current user is an ADMIN
-//             }else if(socketRole === "admin"){
-//                 // ADMIN clicked on a REGULAR user --> kick/ban
-//                 if(userRole !== "creator" && userRole !== "admin"){
-//                     console.log('admin clicked regular');
-//                 }
-//             }
-//         });
-//         $(tableRow).append(usernameDisplay);
-//         $(userList).append(tableRow);
-//     }
-// });
 
 function userClickHandler(socketUsername, clickedUsername, roomName){
     return function(){
@@ -186,10 +187,6 @@ socket.on('update_user_list', function(data){
     }
 });
 
-
-
-
-
 // updates room list to reflect actively open rooms
 socket.on('update_roomList', function (roomData){
     console.log(roomData);
@@ -263,12 +260,12 @@ function editUsername(submit){
     }
 }
 
-
 // handles leaving room
 function leaveRoom(){
     // leave room logic 
-   console.log(`left room`);
-   displayPage('#page2-roomList');
+    console.log(`left room`);
+    socket.emit('leave_room');
+    displayPage('#page2-roomList');
 }
 
 // handles create room form submission
@@ -354,10 +351,12 @@ function resetForms(){
     const createRoomForm = document.getElementById("createRoomForm");
     const editUsernameForm = document.getElementById('editUsername');
     const roomPasswordForm = document.getElementById('passwordForm');
+    const sendMessageForm = document.getElementById('sendMessage');
     signInForm.reset();
     createRoomForm.reset();
     editUsernameForm.reset();
     roomPasswordForm.reset();
+    sendMessageForm.reset();
 }
 
 // hides all pages EXCEPT the page to display
@@ -388,6 +387,11 @@ $('#createRoom-submit').click(function(submit){
     $('#warning-add').hide();
     createRoom(submit);
     resetForms();
+});
+
+$('#sendMessage-submit').click(function(submit){
+    // $('#warning-add').hide();
+    sendMessage(submit);
 });
 
 $('#leave').click(function(){
