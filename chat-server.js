@@ -33,7 +33,7 @@ const socketIO = require("socket.io")(http, {
 const io = socketIO.listen(server);
 
 /* stores administrative information about each room
-    - roomName (string): Room's Name/ID  maps to { creator (string):    Room's creator,
+    - roomName (string): Room's Name/ID  maps to { creator (socket.id):    Room's creator,
                                                    admins (set):        Set of users (socketIds) given admin privileges by the creator
                                                    banList (set):       Set of users (socketIds) permanently banned from the room
                                                    password (string):   Room's Password
@@ -51,9 +51,12 @@ io.sockets.on("connection", function(socket){
     // returns if username is currently available
     socket.on('check_username_availability', async function(data){
         const { username } = data;
+
         const sockets = await io.fetchSockets();
         const usernameAvailableResult = !sockets.some(sock => sock.username === username);     // available: true | false
+        
         socket.emit('username_availability_result', { available: usernameAvailableResult });
+
         if(usernameAvailableResult){
             // create user & update the active room list on the next page
             socket.username = username;
@@ -86,7 +89,7 @@ io.sockets.on("connection", function(socket){
         // if room name is available --> create the room and store associated local data
         if(roomCreatable){
             socket.join(roomName);
-            roomData[roomName] =    {   creator:        socket.username,
+            roomData[roomName] =    {   creator:        socket.id,
                                         admins:         new Set(),
                                         banList:        new Set(),
                                         password:       password,
@@ -96,9 +99,7 @@ io.sockets.on("connection", function(socket){
             io.emit('update_roomList', roomData);
 
             // update room's user list
-            const socketsInRoom = await io.in(roomName).fetchSockets();
-            const updatedUserList = socketsInRoom.map(socket => socket.username);
-            io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
+            updateUserList(io, roomName, roomData);
 
             // welcome message
             const typeOfMessage = 'help';
@@ -106,7 +107,7 @@ io.sockets.on("connection", function(socket){
             const message = `Welcome to the room!\n
                             Help Commands\n
                             • Type !help for help commands\n
-                            • Type !pm username to send a private message`;
+                            • Type !pm username message to send a private message`;
 
             io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
         }
@@ -133,7 +134,7 @@ io.sockets.on("connection", function(socket){
         }
 
         // check if user is banned from the room
-        if(roomData[roomName].banList.has(socket.username)){
+        if(roomData[roomName].banList.has(socket.id)){
             socket.emit('join_room_error', { message: 'You are permanently banned from this room.' });
             return;
         }
@@ -148,9 +149,7 @@ io.sockets.on("connection", function(socket){
         io.emit('update_roomList', roomData);
         
         // update room's user list
-        const socketsInRoom = await io.in(roomName).fetchSockets();
-        const updatedUserList = socketsInRoom.map(socket => socket.username);
-        io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
+        updateUserList(io, roomName, roomData);
 
 
         // welcome message
@@ -159,29 +158,29 @@ io.sockets.on("connection", function(socket){
         const message = `Welcome to the room!\n
                         Help Commands\n
                         • Type !help for help commands\n
-                        • Type !pm username to send a private message`;
+                        • Type !pm username message to send a private message`;
 
         io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
     });
 
-    socket.on('get_user_role', function(data){
+    socket.on('get_user_role', async function(data){
         const roomName = data.roomName;
         const username = data.username;
+
+        // get user's socketID
+        const socketsInRoom = await io.in(roomName).fetchSockets();
+        const userSocket = socketsInRoom.find(sock => sock.username === username);
+
         let role = "";
-        if(roomData[roomName].creator === username){
+        if(roomData[roomName].creator === userSocket.id){
             role = "creator";
-        }else if(roomData[roomName].admins.has(username)){
+        }else if(roomData[roomName].admins.has(userSocket.id)){
             role = "admin";
         }else{
             role = "regular";
         }
         socket.emit('user_role_result', role);
     });
-    
-    // socket.on('message_to_server', function (data){
-    //     console.log("message: " + data["message"]);
-    //     io.sockets.emit("message_to_client", { message: data["message"] });
-    // });
 
     socket.on('send_message', async function(data){
         const roomName = data.roomName;
@@ -205,7 +204,7 @@ io.sockets.on("connection", function(socket){
                 sender = 'ChitChat Bot';
                 message =   `Help Commands\n
                             • Type !help for help commands\n
-                            • Type !pm username to send a private message`;
+                            • Type !pm username message to send a private message`;
 
                 io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
             }else if(pmPattern.test(message)){
@@ -213,7 +212,7 @@ io.sockets.on("connection", function(socket){
                 typeOfMessage = 'private';
 
                 const socketsInRoom = await io.in(roomName).fetchSockets();
-                const recipientSocket = socketsInRoom.find(socket => socket.username === recipient);
+                const recipientSocket = socketsInRoom.find(sock => sock.username === recipient);
 
                 // check if message recipient is in the room --> send private message
                 if(recipientSocket){
@@ -230,8 +229,9 @@ io.sockets.on("connection", function(socket){
                 }else{  // recipient is not in the room
                     sender = 'ChitChat Bot';
                     message = `Whoops! ${recipient} isn't currently in the room.`;
+                    typeOfMessage = 'unavailable';
 
-                    socket.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
+                    io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
                 }
             }else{  // public message
                 io.in(roomName).emit('receive_message', { sender, message, typeOfMessage });
@@ -240,172 +240,65 @@ io.sockets.on("connection", function(socket){
             console.log(`${typeOfMessage} message from ${sender}: ${message}`);
         }
     });
-
-    socket.on('get_current_room', function(){
-        // rooms the socket is currently in
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
-
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
-
-        // socket is in a chat room --> leave and decrement room size!
+    
+    // get the current room the socket is in
+    socket.on('get_current_room', async function(){
+        const roomName = await getCurrentRoom(socket);
         socket.emit('current_room_result', roomName);
     });
 
     socket.on('admin', async function(username){
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+        const roomName = await getCurrentRoom(socket);
 
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
+        // get user's socketID
+        const socketsInRoom = await io.in(roomName).fetchSockets();
+        const socketToAdmin = socketsInRoom.find(sock => sock.username === username);
 
         if(roomName !== null){
-            roomData[roomName].admins.add(username);
+            roomData[roomName].admins.add(socketToAdmin.id);
             // update room's user list
-            const socketsInRoom = await io.in(roomName).fetchSockets();
-            const updatedUserList = socketsInRoom.map(socket => socket.username);
-            io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
+            updateUserList(io, roomName, roomData);
         }
     });
 
     socket.on('unadmin', async function(username){
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+        const roomName = await getCurrentRoom(socket);
 
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
+        // get user's socketID
+        const socketsInRoom = await io.in(roomName).fetchSockets();
+        const socketToUnAdmin = socketsInRoom.find(sock => sock.username === username);
 
         if(roomName !== null){
-            roomData[roomName].admins.delete(username);
+            roomData[roomName].admins.delete(socketToUnAdmin.id);
             // update room's user list
-            const socketsInRoom = await io.in(roomName).fetchSockets();
-            const updatedUserList = socketsInRoom.map(socket => socket.username);
-            io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
-            console.log(roomData[roomName]);
+            updateUserList(io, roomName, roomData);
         }
     });
 
-    async function leaveRoom(socket){
-        // rooms the socket is currently in
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
-
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        when leaving a room, we will only make the socket leave a chat room. the socket will continue inside their own socket.id room
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
-
-        // socket is in a chat room --> leave and decrement room size!
-        if(roomName !== null){
-            socket.leave(roomName);
-            roomData[roomName].currentSize--;
-
-            // if socket was the last user in the chat room, delete the room
-            if(roomData[roomName].currentSize === 0){
-                delete roomData[roomName];
-
-                // update room size list
-                io.emit('update_roomList', roomData);
-            }else{
-                // update room size list
-                io.emit('update_roomList', roomData);
-
-                // update room's user list
-                const socketsInRoom = await io.in(roomName).fetchSockets();
-                const updatedUserList = socketsInRoom.map(socket => socket.username);
-                io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
-            }
-        }
-    }
-
     socket.on('kick', async function(username){
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
-
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
+        const roomName = await getCurrentRoom(socket);
 
         if(roomName !== null){
             const socketsInRoom = await io.in(roomName).fetchSockets();
-            const socketToKick = socketsInRoom.find(socket => socket.username === username);
+            const socketToKick = socketsInRoom.find(sock => sock.username === username);
             await leaveRoom(socketToKick);
             io.to(socketToKick.id).emit('kicked');
         }
     });
 
     socket.on('ban', async function(username){
-        const socketRooms = io.of("/").adapter.sids.get(socket.id);
-
-        /* 
-        sockets can be in at most 2 rooms:
-            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
-            - sockets can join chat rooms
-        */
-        let roomName = null;
-        for(const room of socketRooms){
-            if(room !== socket.id){
-                roomName = room;
-                break;
-            }
-        }
+        const roomName = await getCurrentRoom(socket);
 
         if(roomName !== null){
-            roomData[roomName].banList.add(username);
             const socketsInRoom = await io.in(roomName).fetchSockets();
-            const socketToKick = socketsInRoom.find(socket => socket.username === username);
-            await leaveRoom(socketToKick);
+            const socketToBan = socketsInRoom.find(sock => sock.username === username);
+            roomData[roomName].banList.add(socketToBan.id);
+            await leaveRoom(socketToBan);
         
             // kick and ban user
-            io.to(socketToKick.id).emit('banned');
+            io.to(socketToBan.id).emit('banned');
         }
     });
-
-    
 
     // user leaves the room
     socket.on('leave_room', async function(){
@@ -422,3 +315,64 @@ io.sockets.on("connection", function(socket){
         console.log('User Disconnected:', socket.id);
     });
 });
+
+// update room's user list
+async function updateUserList(io, roomName, roomData){
+    const socketsInRoom = await io.in(roomName).fetchSockets();
+    const updatedUserList = {};
+    
+    socketsInRoom.forEach(sock => {
+        updatedUserList[sock.username] = sock.id;
+    });
+
+    io.to(roomName).emit('update_user_list', {
+        roomName,
+        creator: roomData[roomName].creator,
+        adminList: Array.from(roomData[roomName].admins),
+        updatedUserList
+    });
+}
+
+async function getCurrentRoom(socket) {
+    // rooms the socket is currently in
+    const socketRooms = io.of("/").adapter.sids.get(socket.id);
+
+    /* 
+    sockets can be in at most 2 rooms:
+        - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
+        - sockets can join/leave chat rooms
+    */
+    let roomName = null;
+    for(const room of socketRooms){
+        if(room !== socket.id){
+            roomName = room;
+            break;
+        }
+    }
+
+    return roomName;
+}
+
+async function leaveRoom(socket){
+    const roomName = await getCurrentRoom(socket);
+
+    // socket is in a chat room --> leave and decrement room size!
+    if(roomName !== null){
+        socket.leave(roomName);
+        roomData[roomName].currentSize--;
+
+        // if socket was the last user in the chat room, delete the room
+        if(roomData[roomName].currentSize === 0){
+            delete roomData[roomName];
+
+            // update room size list
+            io.emit('update_roomList', roomData);
+        }else{
+            // update room size list
+            io.emit('update_roomList', roomData);
+
+            // update room's user list
+            updateUserList(io, roomName, roomData);
+        }
+    }
+}

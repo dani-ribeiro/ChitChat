@@ -34,7 +34,7 @@ socket.on('receive_message', function(data){
     $(messageText).addClass('chatBox-message');
     $(messageText).html(message.replace(/\n/g, '<br>'));
 
-    if(typeOfMessage === 'help'){
+    if(typeOfMessage === 'help' || typeOfMessage === 'unavailable'){
         $(profilePicture).attr('src', 'static/chitchat.png');
         $(messageSender).addClass('helpMessage');
         $(messageText).addClass('helpMessage');
@@ -172,32 +172,32 @@ socket.on('update_user_list', function(data){
     const userList = $('#userListBody');
     $(userList).html('');
 
-    for(const user of updatedUserList){
+    for(const [username, userID] of Object.entries(updatedUserList)){
         const tableRow = document.createElement('tr');
         const usernameDisplay = document.createElement('td');
 
         // displays crown for creator, shield for admins
-        if(user === creator){
+        if(userID === creator){
             $(usernameDisplay).addClass('userWithImage');
-            $(usernameDisplay).html(`<img src="static/crown.png"></img>${user}`);
-        }else if(adminList.includes(user)){
+            $(usernameDisplay).html(`<img src="static/crown.png"></img>${username}`);
+        }else if(adminList.includes(userID)){
             $(usernameDisplay).addClass('userWithImage');
-            $(usernameDisplay).html(`<img src="static/shield.png">${user}`);   
+            $(usernameDisplay).html(`<img src="static/shield.png">${username}`);   
         }else{  // regular user
-            $(usernameDisplay).text(user);
+            $(usernameDisplay).text(username);
         }
 
         // user action modal toggle view
         // creator can click on any other name and commit an action
         // admins can only click on regular user and commit an action (can't click on other admin, or creator)
         tableRow.setAttribute('data-bs-target', '#userActionModal');
-        if((socket.username === creator && user !== creator) || (adminList.includes(socket.username) && !adminList.includes(user) && user !== creator)){
+        if((socket.id === creator && userID !== creator) || (adminList.includes(socket.id) && !adminList.includes(userID) && userID !== creator)){
             $(tableRow).attr('data-bs-toggle', 'modal');
         }else{
             tableRow.setAttribute('data-bs-toggle', 'disabled');
         }
-
-        $(tableRow).click(userClickHandler(socket.username, user, roomName));
+        
+        $(tableRow).click(userClickHandler(socket.username, username, roomName));
 
         $(tableRow).append(usernameDisplay);
         $(userList).append(tableRow);
@@ -266,6 +266,7 @@ function editUsername(submit){
             if(data.available){
                 // username is available --> change username success!
                 $('#roomList-username span').text(username);
+                socket.username = username;
             }else{
                 // username is currently taken
                 $('#warning-editUsername h6').text(`Username ${username} is already taken`);
