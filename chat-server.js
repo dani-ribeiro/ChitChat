@@ -131,6 +131,12 @@ io.sockets.on("connection", function(socket){
             socket.emit('join_room_error', { message: 'Room is full' });
             return;
         }
+
+        // check if user is banned from the room
+        if(roomData[roomName].banList.has(socket.username)){
+            socket.emit('join_room_error', { message: 'You are permanently banned from this room.' });
+            return;
+        }
     
         // passes all validation --> join room & increment current room size
         socket.join(roomName);
@@ -256,8 +262,58 @@ io.sockets.on("connection", function(socket){
         socket.emit('current_room_result', roomName);
     });
 
-    // user leaves the room
-    socket.on('leave_room', async function(){
+    socket.on('admin', async function(username){
+        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+
+        /* 
+        sockets can be in at most 2 rooms:
+            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
+            - sockets can join chat rooms
+        */
+        let roomName = null;
+        for(const room of socketRooms){
+            if(room !== socket.id){
+                roomName = room;
+                break;
+            }
+        }
+
+        if(roomName !== null){
+            roomData[roomName].admins.add(username);
+            // update room's user list
+            const socketsInRoom = await io.in(roomName).fetchSockets();
+            const updatedUserList = socketsInRoom.map(socket => socket.username);
+            io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
+        }
+    });
+
+    socket.on('unadmin', async function(username){
+        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+
+        /* 
+        sockets can be in at most 2 rooms:
+            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
+            - sockets can join chat rooms
+        */
+        let roomName = null;
+        for(const room of socketRooms){
+            if(room !== socket.id){
+                roomName = room;
+                break;
+            }
+        }
+
+        if(roomName !== null){
+            roomData[roomName].admins.delete(username);
+            // update room's user list
+            const socketsInRoom = await io.in(roomName).fetchSockets();
+            const updatedUserList = socketsInRoom.map(socket => socket.username);
+            io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
+            console.log(roomData[roomName]);
+        }
+    });
+
+    async function leaveRoom(socket){
         // rooms the socket is currently in
         const socketRooms = io.of("/").adapter.sids.get(socket.id);
 
@@ -296,6 +352,69 @@ io.sockets.on("connection", function(socket){
                 io.emit('update_user_list', { roomName, creator: roomData[roomName].creator, adminList : Array.from(roomData[roomName].admins) , updatedUserList });
             }
         }
+    }
+
+    socket.on('kick', async function(username){
+        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+
+        /* 
+        sockets can be in at most 2 rooms:
+            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
+            - sockets can join chat rooms
+        */
+        let roomName = null;
+        for(const room of socketRooms){
+            if(room !== socket.id){
+                roomName = room;
+                break;
+            }
+        }
+
+        if(roomName !== null){
+            const socketsInRoom = await io.in(roomName).fetchSockets();
+            const socketToKick = socketsInRoom.find(socket => socket.username === username);
+            await leaveRoom(socketToKick);
+            io.to(socketToKick.id).emit('kicked');
+        }
+    });
+
+    socket.on('ban', async function(username){
+        const socketRooms = io.of("/").adapter.sids.get(socket.id);
+
+        /* 
+        sockets can be in at most 2 rooms:
+            - sockets will ALWAYS be in their own socket.id room (this is also used for private messaging)
+            - sockets can join chat rooms
+        */
+        let roomName = null;
+        for(const room of socketRooms){
+            if(room !== socket.id){
+                roomName = room;
+                break;
+            }
+        }
+
+        if(roomName !== null){
+            roomData[roomName].banList.add(username);
+            const socketsInRoom = await io.in(roomName).fetchSockets();
+            const socketToKick = socketsInRoom.find(socket => socket.username === username);
+            await leaveRoom(socketToKick);
+        
+            // kick and ban user
+            io.to(socketToKick.id).emit('banned');
+        }
+    });
+
+    
+
+    // user leaves the room
+    socket.on('leave_room', async function(){
+        await leaveRoom(socket);
+    });
+
+    // user disconnects from program --> leave all rooms and update displays
+    socket.on('disconnecting', async function() {
+        await leaveRoom(socket);
     });
 
     // user disconnects from server (exits page)

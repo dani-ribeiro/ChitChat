@@ -1,3 +1,14 @@
+// user kicked from the room
+socket.on('banned', function(){
+    displayPage('#page2-roomList');
+});
+
+// user kicked from the room
+socket.on('kicked', function(){
+    console.log(`kicked from the room`);
+    displayPage('#page2-roomList');
+});
+
 socket.on('receive_message', function(data){
     const sender = data.sender;
     const message = data.message;
@@ -96,6 +107,10 @@ socket.on('join_room_error', function (data){
     }else if(data.message === 'Incorrect Password'){
         $('#warning-password h6').text(data.message);
         $('#warning-password').show();
+    }else if(data.message === 'You are permanently banned from this room.'){
+        $('#roomPasswordModal').modal('hide');
+        $('#warning-roomFull h6').text(data.message);
+        $('#warning-roomFull').show();
     }
 });
 
@@ -122,9 +137,10 @@ function userClickHandler(socketUsername, clickedUsername, roomName){
                     - If current user is not a room CREATOR and not a room ADMIN, they are a REGULAR user
                         - No special priviledges.
                 */
+               console.log(`you're a ${socketRole} clicking on a ${clickedUserRole}`);
 
                 $('#userAction-username').text(clickedUsername);
-                $('#userActionModalBody').show();
+                $('#userActionModalBody').show().children().show();
                 // current user is the CREATOR
                 if(socketRole === "creator"){
                     // CREATOR clicked on an ADMIN --> kick/ban/unadmin
@@ -137,7 +153,8 @@ function userClickHandler(socketUsername, clickedUsername, roomName){
                 }else if(socketRole === "admin"){
                     // ADMIN clicked on a REGULAR user --> kick/ban
                     if(clickedUserRole !== "creator" && clickedUserRole !== "admin"){
-                        $('#admin', '#unadmin').hide();
+                        $('#admin').hide();
+                        $('#unadmin').hide();
                     }
                 }
             });
@@ -210,7 +227,7 @@ socket.on('update_roomList', function (roomData){
 
         $(roomList).append(tableRow);
 
-        $(tableRow).off(); // Remove all event listeners from tableRow
+        $(tableRow).off(); // remove all event listeners from tableRow
 
         // attach join room event listener to the table row
         if(room_data.password){
@@ -397,6 +414,34 @@ $('#sendMessage-submit').click(function(submit){
 $('#leave').click(function(){
     leaveRoom();
 });
+
+// admins the user you clicked on
+$('#admin').click(function(){
+    const userToAdmin = document.getElementById('userAction-username').textContent;
+    socket.emit('admin', userToAdmin);
+    $('#userActionModal').modal('hide');
+});
+
+// unadmins the user you clicked on
+$('#unadmin').click(function(){
+    const userToUnAdmin = document.getElementById('userAction-username').textContent;
+    socket.emit('unadmin', userToUnAdmin);
+    $('#userActionModal').modal('hide');
+});
+
+// kicks the user you clicked on from the room (they can rejoin)
+$('#kick').click(function(){
+    const userToKick = document.getElementById('userAction-username').textContent;
+    socket.emit('kick', userToKick);
+    $('#userActionModal').modal('hide');
+})
+
+// bans the user you clicked on from the room (they CAN'T rejoin)
+$('#ban').click(function(){
+    const userToBan = document.getElementById('userAction-username').textContent;
+    socket.emit('ban', userToBan);
+    $('#userActionModal').modal('hide');
+})
 
 // styling
 // note: you're gonna have to put this in the method for when we click on the userActionModal
