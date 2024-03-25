@@ -43,33 +43,59 @@ const io = socketIO.listen(server);
 */
 const roomData = {};
   
-
 // user connects to server (enters page)
 io.sockets.on("connection", function(socket){
     console.log('User Connected:', socket.id);
 
     // returns if username is currently available
     socket.on('check_username_availability', async function(data){
-        const { username } = data;
+        const username = data.username;
+        const clientToken = data.clientToken;   // no token at sign up
 
-        const sockets = await io.fetchSockets();
-        const usernameAvailableResult = !sockets.some(sock => sock.username === username);     // available: true | false
-        
-        socket.emit('username_availability_result', { available: usernameAvailableResult });
+        if(clientToken !== null && clientToken === socket.token){
+            const sockets = await io.fetchSockets();
+            const usernameAvailableResult = !sockets.some(sock => sock.username === username);     // available: true | false
+            
+            socket.emit('username_availability_result', { available: usernameAvailableResult });
 
-        if(usernameAvailableResult){
-            // create user & update the active room list on the next page
-            socket.username = username;
-            io.emit('update_roomList', roomData);
+            if(usernameAvailableResult){
+                // create user & update the active room list on the next page
+                socket.username = username;
+
+                // generate random token
+                let token = Array.from(Array(32), () => Math.floor(Math.random() * 36).toString(36)).join('');
+                socket.token = token;
+                socket.emit('set_token', token);
+
+                io.emit('update_roomList', roomData);
+            }
+            console.log('----------------------------------------------------------------------------------------------------------------')
+            console.log(sockets);
         }
-        console.log('----------------------------------------------------------------------------------------------------------------')
-        console.log(sockets);
+    });
+
+    // updates the X chatters in Y rooms message
+    socket.on('update_server_message', function(){
+        const sids = io.of("/").adapter.sids;
+        let chattersCount = 0;
+
+        sids.forEach((rooms, socketId) => {
+            if (rooms.size == 2) {
+                chattersCount++;
+            }
+        });
+        const roomsCount = Object.keys(roomData).length;
+
+        io.emit('update_server_message_result', { chattersCount, roomsCount });
     });
 
     // signs out the user
-    socket.on('signOut', function(){
-        delete socket.username;
-        socket.emit('signedOut');
+    socket.on('signOut', function(clientToken){
+        if(clientToken === socket.token){
+            delete socket.username;
+            delete socket.token;
+            socket.emit('signedOut');
+        }
     });
 
     // returns if room name is currently available (if no room currently has the given name, allow room creation.   else: don't allow)
@@ -77,90 +103,98 @@ io.sockets.on("connection", function(socket){
         const roomName = data.roomName;
         const password = data.password;
         const maxSize = data.maxSize;
+        const clientToken = data.clientToken;
 
-        const rooms = io.of("/").adapter.rooms;
-        let roomCreatable = true;
-        for(const room of rooms.keys()){
-            if(room === roomName){
-                roomCreatable = false;
-                break;
+        if(clientToken === socket.token){
+            const rooms = io.of("/").adapter.rooms;
+            let roomCreatable = true;
+            for(const room of rooms.keys()){
+                if(room === roomName){
+                    roomCreatable = false;
+                    break;
+                }
             }
-        }
-        // if room name is available --> create the room and store associated local data
-        if(roomCreatable){
-            socket.join(roomName);
-            roomData[roomName] =    {   creator:        socket.id,
-                                        admins:         new Set(),
-                                        banList:        new Set(),
-                                        password:       password,
-                                        maxSize:        maxSize,
-                                        currentSize:    1
-                                    };
-            io.emit('update_roomList', roomData);
+            // if room name is available --> create the room and store associated local data
+            if(roomCreatable){
+                socket.join(roomName);
+                roomData[roomName] =    {   creator:        socket.id,
+                                            admins:         new Set(),
+                                            banList:        new Set(),
+                                            password:       password,
+                                            maxSize:        maxSize,
+                                            currentSize:    1
+                                        };
+                io.emit('update_roomList', roomData);
 
+                // update room's user list
+                updateUserList(io, roomName, roomData);
+
+                // welcome message
+                const typeOfMessage = 'help';
+                const sender = 'ChitChat Bot';
+                const message = `Welcome to the room!\n
+                                Room Name: ${roomName}\n
+                                Help Commands\n
+                                • Type !help for help commands\n
+                                • Type !pm username message to send a private message`;
+
+                io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
+            }
+
+            socket.emit('create_room_result', { available: roomCreatable });
+        }
+    });
+
+    socket.on('join_room', async function (data){
+        const roomName = data.roomName;
+        const password = data.password;
+        const clientToken = data.clientToken;
+
+        if(clientToken === socket.token){
+            // check if password (if provided) is correct
+            if (roomData[roomName].password){
+                if (password && password !== roomData[roomName].password){
+                    socket.emit('join_room_error', { message: 'Incorrect Password' });
+                    return;
+                }
+            }
+        
+            // check if room is full
+            if(roomData[roomName].currentSize !== 'unlimited' && roomData[roomName].currentSize >= roomData[roomName].maxSize){
+                socket.emit('join_room_error', { message: 'Room is full' });
+                return;
+            }
+
+            // check if user is banned from the room
+            if(roomData[roomName].banList.has(socket.id)){
+                socket.emit('join_room_error', { message: 'You are permanently banned from this room.' });
+                return;
+            }
+        
+            // passes all validation --> join room & increment current room size
+            socket.join(roomName);
+            roomData[roomName].currentSize++;
+        
+            socket.emit('join_room_success');
+
+            // update room size list
+            io.emit('update_roomList', roomData);
+            
             // update room's user list
             updateUserList(io, roomName, roomData);
+
 
             // welcome message
             const typeOfMessage = 'help';
             const sender = 'ChitChat Bot';
             const message = `Welcome to the room!\n
+                            Room Name: ${roomName}\n
                             Help Commands\n
                             • Type !help for help commands\n
                             • Type !pm username message to send a private message`;
 
             io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
         }
-
-        socket.emit('create_room_result', { available: roomCreatable });
-    });
-
-    socket.on('join_room', async function (data){
-        const roomName = data.roomName;
-        const password = data.password;
-    
-        // check if password (if provided) is correct
-        if (roomData[roomName].password){
-            if (password && password !== roomData[roomName].password){
-                socket.emit('join_room_error', { message: 'Incorrect Password' });
-                return;
-            }
-        }
-    
-        // check if room is full
-        if(roomData[roomName].currentSize >= roomData[roomName].maxSize){
-            socket.emit('join_room_error', { message: 'Room is full' });
-            return;
-        }
-
-        // check if user is banned from the room
-        if(roomData[roomName].banList.has(socket.id)){
-            socket.emit('join_room_error', { message: 'You are permanently banned from this room.' });
-            return;
-        }
-    
-        // passes all validation --> join room & increment current room size
-        socket.join(roomName);
-        roomData[roomName].currentSize++;
-    
-        socket.emit('join_room_success');
-
-        // update room size list
-        io.emit('update_roomList', roomData);
-        
-        // update room's user list
-        updateUserList(io, roomName, roomData);
-
-
-        // welcome message
-        const typeOfMessage = 'help';
-        const sender = 'ChitChat Bot';
-        const message = `Welcome to the room!\n
-                        Help Commands\n
-                        • Type !help for help commands\n
-                        • Type !pm username message to send a private message`;
-
-        io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
     });
 
     socket.on('get_user_role', async function(data){
@@ -184,60 +218,63 @@ io.sockets.on("connection", function(socket){
 
     socket.on('send_message', async function(data){
         const roomName = data.roomName;
+        const clientToken = data.clientToken;
 
-        if(roomName !== null){
-            let message = data.message; 
-            let sender = data.sender;
-            let typeOfMessage = 'public';     // messages are public by default
-
-            /*
-                parsing a message:
-                    - message is !help --> display usage commands in the messages container
-                    - message is !pm <recipient> <message> --> display/send private message to recipient
-                    - otherwise: normal message --> display/send message to entire room
-            */
-            const pmPattern = /^!pm (\w+) ([\s\S]+)$/i;
-
-
-            if(message === "!help"){
-                typeOfMessage = 'help';
-                sender = 'ChitChat Bot';
-                message =   `Help Commands\n
-                            • Type !help for help commands\n
-                            • Type !pm username message to send a private message`;
-
-                io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
-            }else if(pmPattern.test(message)){
-                const [,recipient, parsedMessage] = message.match(pmPattern);
-                typeOfMessage = 'private';
-
-                const socketsInRoom = await io.in(roomName).fetchSockets();
-                const recipientSocket = socketsInRoom.find(sock => sock.username === recipient);
-
-                // check if message recipient is in the room --> send private message
-                if(recipientSocket){
-                    sender = `Private Message from ${socket.username}`
-                    typeOfMessage = 'private';
-                    const recipientSocketID = recipientSocket.id;
-
-                    // private message FROM sender
-                    socket.to(recipientSocketID).emit('receive_message', { sender, message: parsedMessage, typeOfMessage });
-
-                    // private message TO recipient
-                    sender = `Private Message to ${recipient}`;
-                    io.to(socket.id).emit('receive_message', { sender, message: parsedMessage, typeOfMessage });
-                }else{  // recipient is not in the room
+        if(clientToken === socket.token){
+            if(roomName !== null){
+                let message = data.message; 
+                let sender = data.sender;
+                let typeOfMessage = 'public';     // messages are public by default
+    
+                /*
+                    parsing a message:
+                        - message is !help --> display usage commands in the messages container
+                        - message is !pm <recipient> <message> --> display/send private message to recipient
+                        - otherwise: normal message --> display/send message to entire room
+                */
+                const pmPattern = /^!pm (\w+) ([\s\S]+)$/i;
+    
+    
+                if(message === "!help"){
+                    typeOfMessage = 'help';
                     sender = 'ChitChat Bot';
-                    message = `Whoops! ${recipient} isn't currently in the room.`;
-                    typeOfMessage = 'unavailable';
-
+                    message =   `Help Commands\n
+                                • Type !help for help commands\n
+                                • Type !pm username message to send a private message`;
+    
                     io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
+                }else if(pmPattern.test(message)){
+                    const [,recipient, parsedMessage] = message.match(pmPattern);
+                    typeOfMessage = 'private';
+    
+                    const socketsInRoom = await io.in(roomName).fetchSockets();
+                    const recipientSocket = socketsInRoom.find(sock => sock.username === recipient);
+    
+                    // check if message recipient is in the room --> send private message
+                    if(recipientSocket){
+                        sender = `Private Message from ${socket.username}`
+                        typeOfMessage = 'private';
+                        const recipientSocketID = recipientSocket.id;
+    
+                        // private message FROM sender
+                        socket.to(recipientSocketID).emit('receive_message', { sender, message: parsedMessage, typeOfMessage });
+    
+                        // private message TO recipient
+                        sender = `Private Message to ${recipient}`;
+                        io.to(socket.id).emit('receive_message', { sender, message: parsedMessage, typeOfMessage });
+                    }else{  // recipient is not in the room
+                        sender = 'ChitChat Bot';
+                        message = `Whoops! ${recipient} isn't currently in the room.`;
+                        typeOfMessage = 'unavailable';
+    
+                        io.to(socket.id).emit('receive_message', { sender, message, typeOfMessage });
+                    }
+                }else{  // public message
+                    io.in(roomName).emit('receive_message', { sender, message, typeOfMessage });
                 }
-            }else{  // public message
-                io.in(roomName).emit('receive_message', { sender, message, typeOfMessage });
+    
+                console.log(`${typeOfMessage} message from ${sender}: ${message}`);
             }
-
-            console.log(`${typeOfMessage} message from ${sender}: ${message}`);
         }
     });
     
@@ -301,8 +338,10 @@ io.sockets.on("connection", function(socket){
     });
 
     // user leaves the room
-    socket.on('leave_room', async function(){
-        await leaveRoom(socket);
+    socket.on('leave_room', async function(clientToken){
+        if(clientToken === socket.token){
+            await leaveRoom(socket);
+        }
     });
 
     // user disconnects from program --> leave all rooms and update displays

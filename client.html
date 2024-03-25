@@ -33,7 +33,7 @@
                       <label for="signIn-name" class="col-form-label">Name:</label>
                     </div>
                     <div class="col-auto">
-                      <input type="text" id="signIn-name" class="form-control form-control-sm" required>
+                      <input type="text" id="signIn-name" class="form-control form-control-sm" maxlength="25" required>
                     </div>
                   </div>
                 <button class="btn btn-secondary" id="signIn-submit">Chat</button>
@@ -119,7 +119,7 @@
                                     <label for="createRoom-name" class="col-form-label">Room Name</label>
                                 </div>
                                 <div class="col-auto createRoomName">
-                                    <input type="text" id="createRoom-name" class="form-control" required>
+                                    <input type="text" id="createRoom-name" class="form-control" maxlength="25" required>
                                 </div>
                             </div>
                             <!-- Password Field (Optional) -->
@@ -129,7 +129,7 @@
                                     <label for="createRoom-password" class="col-form-label">Password (Optional)</label>
                                 </div>
                                 <div class="col-6 createRoomPassword">
-                                    <input type="password" id="createRoom-password" class="form-control">
+                                    <input type="password" id="createRoom-password" class="form-control" maxlength="25">
                                 </div>
                             </div>
                             <!-- Maximum Room Size Field (Optional >= 2) -->
@@ -173,7 +173,7 @@
                                     <label for="password" class="col-form-label">Password</label>
                                 </div>
                                 <div class="col-6 roomPassword-password">
-                                    <input type="password" id="password" class="form-control">
+                                    <input type="password" id="password" class="form-control" maxlength="25">
                                 </div>
                             </div>
                             <div class="container">
@@ -192,96 +192,9 @@
         <div id="page3-leftContainer">
             <h5 id="chattersTitle">Chatters</h5>
             <div id="page3-userListContainer">
-                <!-- entries will be asynchronously filled -->
                 <table id='userList' class="table table-bordered table-dark table-hover">
                     <tbody id="userListBody">
-                        <tr>
-                            <td id="creatorUser" class="userWithImage">
-                                <img src="static/crown.png">
-                                Creator
-                            </td>
-                        </tr>
-                        <tr>
-                            <td id="adminUser" class="userWithImage" data-bs-toggle="modal" data-bs-target="#userActionModal">
-                                <img src="static/shield.png">
-                                Admin
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
-                        <tr>
-                            <td>Creator</td>
-                        </tr>
-                        <tr>
-                            <td>User1</td>
-                        </tr>
-                        <tr>
-                            <td>User2</td>
-                        </tr>
+                        <!-- entries will be asynchronously filled -->
                     </tbody>
                 </table>
             </div>
