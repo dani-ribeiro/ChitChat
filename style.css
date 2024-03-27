@@ -260,6 +260,45 @@
         --bs-btn-border-color: #454b50;
     }
 
+    /* Room Invite Received Modal */
+    #page2-roomList #roomInviteReceivedModal > .modal-dialog > .modal-content > .modal-header,
+    #page2-roomList #roomInviteReceivedModal > .modal-dialog > .modal-content > .modal-body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        background-color: #2d2d2d;
+        color: #dde1e4;
+    }
+
+    #page2-roomList #roomInviteReceivedModal .modal-header {
+        border-bottom: 1px solid #dde1e4;
+    }
+
+    #page2-roomList #roomInviteReceivedModal .btn {
+        margin: 15px auto;
+        padding: 10px 30px;
+    }
+
+    #page2-roomList #roomInviteReceivedModal #invitation-accept {
+        --bs-btn-color: #fff;
+        --bs-btn-bg: #098905;
+        --bs-btn-border-color: #098905;
+        --bs-btn-hover-color: #fff;
+        --bs-btn-hover-bg: #087604;
+        --bs-btn-hover-border-color: #087604;
+        --bs-btn-focus-shadow-rgb: 225, 83, 97;
+        --bs-btn-active-color: #fff;
+        --bs-btn-active-bg: #087604;
+        --bs-btn-active-border-color: #087604;
+        --bs-btn-active-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+        --bs-btn-disabled-color: #fff;
+        --bs-btn-disabled-bg: #098905;
+        --bs-btn-disabled-border-color: #098905;
+        margin-right: 20px;
+    }
+
 /* Page 3: Chat Room */
 #page3-chatRoom {
     width: 100vw;
@@ -313,6 +352,13 @@
     margin-right: 10px;
 }
 
+#page3-chatRoom #page3-leftContainer #invite {
+    width: 100%;
+    margin: 0;
+    --bs-btn-bg: #454b50;
+    --bs-btn-active-bg: #656e76;
+    --bs-btn-border-color: #454b50;
+}
 
 #page3-chatRoom #page3-leftContainer #leave {
     width: 100%;
@@ -487,6 +533,62 @@
         filter: brightness(0) invert(1);
     }
 
+    /* Invite User Modal */
+    #page3-chatRoom #inviteUserModal > .modal-dialog > .modal-content > .modal-header,
+    #page3-chatRoom #inviteUserModal > .modal-dialog > .modal-content > .modal-body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        background-color: #2d2d2d;
+        color: #dde1e4;
+    }
+
+    #page3-chatRoom #inviteUserModal .modal-header {
+        border-bottom: 1px solid #dde1e4;
+    }
+
+    #page3-chatRoom #inviteUserModal .modal-body {
+        padding-top: 20px;
+    }
+
+    #page3-chatRoom #inviteUserModal .modal-header .btn-close {
+        filter: brightness(0) invert(1);
+    }
+
+    #page3-chatRoom #inviteUserModal #inviteUserImg {
+        width: 40px;
+    }
+
+    #page3-chatRoom #inviteUserForm .row .col-auto {
+        padding: 0;
+    }
+
+    #page3-chatRoom #inviteUserModal #inviteUser-username {
+        width: 200px;
+    }
+    
+
+    #page3-chatRoom #passwordForm input {
+        background-color: #212529;
+        border: #212529;
+        color: #dde1e4;
+    }
+
+    #page3-chatRoom #inviteUserForm .container {
+        padding: 0;
+    }
+
+    #page3-chatRoom #inviteUserModal #inviteUser-submit {
+        width: 100%;
+        margin: 15px auto;
+        padding: 8px 20px;
+        --bs-btn-bg: #454b50;
+        --bs-btn-active-bg: #656e76;
+        --bs-btn-border-color: #454b50;
+    }
+
 
 
 
@@ -504,6 +606,8 @@
 
 #warning-editUsername,
 #warning-password,
-#warning-roomFull {
+#warning-roomFull,
+#warning-roomInviteReceived,
+#warning-inviteUser {
     color:rgb(190,18,18);
 }

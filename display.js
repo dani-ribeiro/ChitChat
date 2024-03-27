@@ -1,4 +1,4 @@
-// Styling -----------------------------------------------------------------------------------------------------------------------------
+// Dynamic Styling ---------------------------------------------------------------------------------------------------------------------
 const buttonContainer = document.getElementById("userActionModalBody");
 const buttons = buttonContainer.querySelectorAll(".btn");
 
@@ -42,10 +42,17 @@ $('#leave').click(function(){
     leaveRoom();
 });
 
+// invites user to the room or displays error message
+$('#inviteUser-submit').click(function(submit){
+    $('#warning-inviteUser').hide();
+    inviteUser(submit);
+    resetForms();
+});
+
 // sends message
 $('#sendMessage-submit').click(function(submit){
-    // $('#warning-add').hide();
     sendMessage(submit);
+    resetForms();
 });
 
 // gives admin permissions to the user clicked on
@@ -77,6 +84,13 @@ $('#ban').click(function(){
     $('#userActionModal').modal('hide');
 });
 
+// accepts room invite and joins the room
+$('#invitation-accept').click(function(){
+    const roomName = document.getElementById('invitationRoomName').textContent;
+    joinRoom(roomName, password=null, invited=true);
+    $('roomInviteReceivedModal').modal('hide');
+});
+
 // Socket.IO Event listeners -----------------------------------------------------------------------------------------------------------
 
 // sets CSRF token after account creation
@@ -86,7 +100,6 @@ socket.on('set_token', function(token){
 
 // updates the room list to display actively open rooms and their corresponding details
 socket.on('update_roomList', function (roomData){
-    console.log(roomData);
     const roomList = $('#roomList-body');
     
     // clear active roomList and re-populate entries
@@ -98,12 +111,15 @@ socket.on('update_roomList', function (roomData){
         roomNameDisplay.textContent = roomName;
         const chatters = document.createElement('td');
 
+        // if room size isn't capped (unlimited): display current room size
+        // if room size is capped: display the current room size (i.e. 2/5 represents 2 users in a room with max size of 5)
         if(room_data.maxSize === 'unlimited'){
             chatters.textContent = `${room_data.currentSize}`;
         }else{
             chatters.textContent = `${room_data.currentSize}/${room_data.maxSize}`;
         }
 
+        // displays whether the room is password-protected
         const private = document.createElement('td');
         private.textContent = room_data.password === '' ? 'No' : 'Yes';
 
@@ -118,7 +134,6 @@ socket.on('update_roomList', function (roomData){
         // attach join room event listener to the table row
         if(room_data.password){
             $('#roomPassword-submit').off();
-            console.log('u have a password');
             tableRow.setAttribute('data-bs-toggle', 'modal');
             tableRow.setAttribute('data-bs-target', '#roomPasswordModal');
             $('#roomPassword-submit').click(function (submit){
@@ -127,7 +142,6 @@ socket.on('update_roomList', function (roomData){
                 resetForms();
             });
         }else{
-            console.log('u dont have a password');
             $(tableRow).click(function (){
                 joinRoom(roomName);
             });
@@ -145,7 +159,7 @@ socket.on('update_user_list', function(data){
     const adminList = data.adminList;
     const updatedUserList = data.updatedUserList;
     
-    // clear user list before updating
+    // clears user list before updating
     const userList = $('#userListBody');
     $(userList).html('');
 
@@ -183,6 +197,7 @@ socket.on('update_user_list', function(data){
 
 // unsuccessful room entry. notifies user of the reason --> DO NOT ALLOW ENTRY
 socket.on('join_room_error', function (data){
+    document.getElementById("invitation-reject").click();   // hides invitation modal
     if(data.message === 'Room is full'){
         $('#roomPasswordModal').modal('hide');
         $('#warning-roomFull h6').text(data.message);
@@ -200,11 +215,23 @@ socket.on('join_room_error', function (data){
 // successful room entry
 socket.on('join_room_success', function (){
     $('#roomPasswordModal').modal('hide');
+    $('#roomInviteReceivedModal').modal('hide');
 
     // clear chat logs
     $('#messagesContainer').html('');
 
     displayPage('#page3-chatRoom');
+});
+
+// displays room invitation modal allowing the user to accept or reject the invitation
+socket.on('invite_receive', function(data){
+    const inviter = data.inviter;
+    const roomName = data.room;
+
+    const invitationModal = document.getElementById('roomInviteReceivedModal');
+    $('#invitation').text(`${inviter} has invited you to join ${roomName}!`);
+    $('#invitationRoomName').text(roomName);
+    $(invitationModal).modal('show');
 });
 
 // socket receives and displays a message
@@ -213,6 +240,7 @@ socket.on('receive_message', function(data){
     const message = data.message;
     const typeOfMessage = data.typeOfMessage;
 
+    // construct the message (avatar image, username, message, and message type)
     const messageContainer = document.getElementById('messagesContainer');
 
     const chatBox = document.createElement('div');
@@ -243,13 +271,14 @@ socket.on('receive_message', function(data){
         $(messageText).addClass('privateMessage');
     }
 
+    // display the message
     $(chatBox_right).append(messageSender);
     $(chatBox_right).append(messageText);
     $(chatBox).append(profilePicture);
     $(chatBox).append(chatBox_right);
     $(messageContainer).append(chatBox);
 
-    // scroll to newest message
+    // scroll down to newest message
     messageContainer.scrollTop = messageContainer.scrollHeight;
 });
 
@@ -262,8 +291,6 @@ socket.on('banned', function(){
 
 // user is temporarily kicked from the room
 socket.on('kicked', function(){
-    console.log(`kicked from the room`);
-
     // clear message logs
     $('#messagesContainer').html('');
     displayPage('#page2-roomList');
@@ -375,7 +402,6 @@ function createRoom(submit){
                 }
             }
             
-
             // validate room's max size
             if(maxSize){
                 if(maxSize < 2){
@@ -394,7 +420,6 @@ function createRoom(submit){
             socket.emit('create_room', { roomName, password, maxSize, clientToken: socket.token });
 
             socket.on('create_room_result', function(data){
-                console.log(data);
                 if(data.available){
                     // room name is available --> create room success!
                     $('#createRoomModal').modal('hide');
@@ -416,8 +441,8 @@ function createRoom(submit){
 }
 
 // user joins room --> password and maximum room capacity are verified in backend
-function joinRoom(roomName, password = null){
-    socket.emit('join_room', { roomName, password, clientToken: socket.token });
+function joinRoom(roomName, password = null, invited = false){
+    socket.emit('join_room', { roomName, password, clientToken: socket.token, invited });
 }
 
 // user clicks to join a password-protected room --> prompts user for password --> validates password in the backend
@@ -439,17 +464,66 @@ function validatePassword(submit, roomName){
 
 // leaves room
 function leaveRoom(){
-    // leave room logic 
-    console.log(`left room`);
     socket.emit('leave_room', socket.token);
     // clear message logs
     $('#messagesContainer').html('');
     displayPage('#page2-roomList');
 }
 
+// invites user to room or displays error message
+function inviteUser(submit){
+    const form = document.getElementById('inviteUserForm');
+    submit.preventDefault(); // prevent default form refresh upon submission
+
+    // remove previous event listeners
+    socket.off('get_socket_result');
+    socket.off('current_room_result');
+
+    if(form.checkValidity()){
+        const userToInvite = document.getElementById("inviteUser-username").value;
+
+        if(validInput(userToInvite)){
+            // check if userToInvite exists
+            socket.emit('get_socket', {username: userToInvite});
+            socket.on('get_socket_result', function(userData){
+                // userData is false if user doesn't exist. If the user DOES exist, userData holds username and socketID
+                if(userData !== false){
+                    socket.emit('get_current_room');
+                    socket.on('current_room_result', function(myRoomName){
+                        socket.off('current_room_result'); // remove previously nested event listener
+                        socket.emit('get_current_room', userToInvite);
+                        socket.on('current_room_result', function(userToInvite_currentRoom){
+                            if(userToInvite_currentRoom !== null){      // user exists but is in a room --> do not invite
+                                // error handling: displays whether both sockets are in the same or different rooms
+                                if(myRoomName === userToInvite_currentRoom){
+                                    $('#warning-inviteUser h6').text('User is already in this room');
+                                }else{
+                                    $('#warning-inviteUser h6').text('User is currently in another room');
+                                }
+                                $('#warning-inviteUser').show();
+                            }else{      // user exists and not in a room --> can successfully invite
+                                $('#inviteUserModal').modal('hide');
+                                socket.emit('invite_send', {invitee: userData, roomName: myRoomName, clientToken: socket.token});
+                            }
+                        })
+                    });
+                }else{      // user does not exist
+                    $('#warning-inviteUser h6').text('User does not exist')
+                    $('#warning-inviteUser').show();
+                }
+            });
+        }else{
+            // invalid username
+            $('#warning-inviteUser h6').text(`Invalid username`);
+            $('#warning-inviteUser').show();
+        }
+    }else{
+        form.reportValidity();
+    }
+}
+
 // updates room list server status message (X chatters in Y rooms)
 function updateServerMessage(){
-    console.log('here');
     socket.emit('update_server_message');
 
     socket.on('update_server_message_result', function(data){
@@ -475,7 +549,6 @@ function sendMessage(submit){
         socket.once('current_room_result', function(room){
             if(room !== null){
                 if(room !== null){
-                    console.log(message);
                     socket.emit('send_message', {roomName: room, message, sender: socket.username, clientToken: socket.token});
                 }
 
@@ -483,7 +556,6 @@ function sendMessage(submit){
             }
         });
     }else{
-        console.log('form validation');
         form.reportValidity();
     }
 }
@@ -506,7 +578,6 @@ function userClickHandler(socketUsername, clickedUsername, roomName){
                     - If current user is not a room CREATOR and not a room ADMIN, they are a REGULAR user
                         - No special priviledges.
                 */
-               console.log(`you're a ${socketRole} clicking on a ${clickedUserRole}`);
 
                 $('#userAction-username').text(clickedUsername);
                 $('#userActionModalBody').show().children().show();
@@ -546,11 +617,13 @@ function resetForms(){
     const editUsernameForm = document.getElementById('editUsername');
     const roomPasswordForm = document.getElementById('passwordForm');
     const sendMessageForm = document.getElementById('sendMessage');
+    const inviteForm = document.getElementById('inviteUserForm');
     signInForm.reset();
     createRoomForm.reset();
     editUsernameForm.reset();
     roomPasswordForm.reset();
     sendMessageForm.reset();
+    inviteForm.reset();
 }
 
 // hides all pages EXCEPT the page to display

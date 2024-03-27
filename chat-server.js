@@ -33,19 +33,18 @@ const socketIO = require("socket.io")(http, {
 const io = socketIO.listen(server);
 
 /* stores administrative information about each room
-    - roomName (string): Room's Name/ID  maps to { creator (socket.id):    Room's creator,
-                                                   admins (set):        Set of users (socketIds) given admin privileges by the creator
-                                                   banList (set):       Set of users (socketIds) permanently banned from the room
-                                                   password (string):   Room's Password
-                                                   maxSize (int):       Room's Maximum Size (as specified when creatign the room)
-                                                   currentSize(int):    Room's current size (constantly updated as users enter/leave)
+    - roomName (string): Room's Name/ID  maps to { creator (socket.id):     Room's creator,
+                                                   admins (set):            Set of users (socketIds) given admin privileges by the creator
+                                                   banList (set):           Set of users (socketIds) permanently banned from the room
+                                                   password (string):       Room's Password
+                                                   maxSize (int):           Room's Maximum Size (as specified when creatign the room)
+                                                   currentSize(int):        Room's current size (constantly updated as users enter/leave)
                                                  }
 */
 const roomData = {};
   
 // user connects to server (enters page)
 io.sockets.on("connection", function(socket){
-    console.log('User Connected:', socket.id);
 
     // returns if username is currently available
     socket.on('check_username_availability', async function(data){
@@ -69,8 +68,6 @@ io.sockets.on("connection", function(socket){
 
                 io.emit('update_roomList', roomData);
             }
-            console.log('----------------------------------------------------------------------------------------------------------------')
-            console.log(sockets);
         }
     });
 
@@ -145,17 +142,23 @@ io.sockets.on("connection", function(socket){
         }
     });
 
+    // joins the room
     socket.on('join_room', async function (data){
         const roomName = data.roomName;
         const password = data.password;
         const clientToken = data.clientToken;
+        const invited = data.invited;
 
         if(clientToken === socket.token){
-            // check if password (if provided) is correct
-            if (roomData[roomName].password){
-                if (password && password !== roomData[roomName].password){
-                    socket.emit('join_room_error', { message: 'Incorrect Password' });
-                    return;
+            // invited users can bypass entering password to join a room since they were invited by some user already inside the room
+            // non-invited users will have to enter a password if the room is locked
+            if(invited === false){
+                // check if password (if provided) is correct
+                if(roomData[roomName].password){
+                    if (password && password !== roomData[roomName].password){
+                        socket.emit('join_room_error', { message: 'Incorrect Password' });
+                        return;
+                    }
                 }
             }
         
@@ -197,6 +200,7 @@ io.sockets.on("connection", function(socket){
         }
     });
 
+    // returns the user's role in a chat room (creator, admin, regular)
     socket.on('get_user_role', async function(data){
         const roomName = data.roomName;
         const username = data.username;
@@ -216,6 +220,7 @@ io.sockets.on("connection", function(socket){
         socket.emit('user_role_result', role);
     });
 
+    // sends a message
     socket.on('send_message', async function(data){
         const roomName = data.roomName;
         const clientToken = data.clientToken;
@@ -233,7 +238,6 @@ io.sockets.on("connection", function(socket){
                         - otherwise: normal message --> display/send message to entire room
                 */
                 const pmPattern = /^!pm (\w+) ([\s\S]+)$/i;
-    
     
                 if(message === "!help"){
                     typeOfMessage = 'help';
@@ -272,18 +276,50 @@ io.sockets.on("connection", function(socket){
                 }else{  // public message
                     io.in(roomName).emit('receive_message', { sender, message, typeOfMessage });
                 }
-    
-                console.log(`${typeOfMessage} message from ${sender}: ${message}`);
             }
         }
     });
+
+    // returns if user exists
+    socket.on('get_socket', async function(data){
+        const username = data.username;
+        const sockets = await io.fetchSockets();
+        const userSocket = sockets.find(sock => sock.username === username);
+
+        userData = false;
+        if(userSocket !== undefined){
+            userData = { username, id: userSocket.id};
+        }
+        socket.emit('get_socket_result', userData);
+    });
     
-    // get the current room the socket is in
-    socket.on('get_current_room', async function(){
-        const roomName = await getCurrentRoom(socket);
+    // gets the current room the socket is in
+    socket.on('get_current_room', async function(sock = undefined){
+        // get_current_room is designed to take a socket as a parameter. If no socket is specified, it was called for the current socket (socket)
+        if(sock === undefined){
+            sock = socket;
+        }else{
+            // gets socket.id from username parameter sock
+            const username = sock;
+            const sockets = await io.fetchSockets();
+            sock = sockets.find(socke => socke.username === username);
+        }
+        const roomName = await getCurrentRoom(sock);
         socket.emit('current_room_result', roomName);
     });
 
+    // sends a room invitation
+    socket.on('invite_send', function(data){
+        const invitee = data.invitee
+        const roomName = data.roomName;
+        const clientToken = data.clientToken;
+
+        if(clientToken === socket.token){
+            io.to(invitee.id).emit('invite_receive', {inviter: socket.username, room: roomName});
+        }
+    });
+
+    // gives admin permissions to a user
     socket.on('admin', async function(username){
         const roomName = await getCurrentRoom(socket);
 
@@ -298,6 +334,7 @@ io.sockets.on("connection", function(socket){
         }
     });
 
+    // removes admin permissions from a user
     socket.on('unadmin', async function(username){
         const roomName = await getCurrentRoom(socket);
 
@@ -312,6 +349,7 @@ io.sockets.on("connection", function(socket){
         }
     });
 
+    // kicks a user from a room
     socket.on('kick', async function(username){
         const roomName = await getCurrentRoom(socket);
 
@@ -323,6 +361,7 @@ io.sockets.on("connection", function(socket){
         }
     });
 
+    // bans a user from a room
     socket.on('ban', async function(username){
         const roomName = await getCurrentRoom(socket);
 
@@ -348,14 +387,9 @@ io.sockets.on("connection", function(socket){
     socket.on('disconnecting', async function() {
         await leaveRoom(socket);
     });
-
-    // user disconnects from server (exits page)
-    socket.on('disconnect', function (){
-        console.log('User Disconnected:', socket.id);
-    });
 });
 
-// update room's user list
+// updates room's user list
 async function updateUserList(io, roomName, roomData){
     const socketsInRoom = await io.in(roomName).fetchSockets();
     const updatedUserList = {};
@@ -372,6 +406,7 @@ async function updateUserList(io, roomName, roomData){
     });
 }
 
+// gets the current room a socket is in
 async function getCurrentRoom(socket) {
     // rooms the socket is currently in
     const socketRooms = io.of("/").adapter.sids.get(socket.id);
@@ -392,6 +427,7 @@ async function getCurrentRoom(socket) {
     return roomName;
 }
 
+// leaves the room a socket is in
 async function leaveRoom(socket){
     const roomName = await getCurrentRoom(socket);
 
